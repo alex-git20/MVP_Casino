@@ -1,10 +1,6 @@
-import dotenv from 'dotenv';
 import app from './app.js';
 import { query } from './config/db.js';
-
-dotenv.config();
-
-const PORT = process.env.PORT || 3000;
+import { config } from './config/env.js';
 
 async function startServer() {
     try {
@@ -12,8 +8,8 @@ async function startServer() {
         const res = await query('SELECT NOW()');
         console.log('Conexion a PostgreSQL exitosa:', res.rows[0].now);
 
-        app.listen(PORT, () => {
-            console.log(`Servidor corriendo en el puerto ${PORT}`);
+        app.listen(config.port, () => {
+            console.log(`Servidor corriendo en el puerto ${config.port}`);
         })
     } catch (error) {
         console.error('Error fatal: No se pudo conectar a la base de datos:', error.message);
