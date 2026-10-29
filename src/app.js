@@ -12,6 +12,11 @@ const app = express();
 
 app.use(helmet());
 app.use(cors());
+
+// 1. EXCEPCIÓN PARA STRIPE: Extraemos el body en crudo solo para esta ruta exacta
+app.use('/api/wallet/webhook-stripe', express.raw({ type: 'application/json' }));
+
+// 2. PARSEO GLOBAL: Para todas las demás rutas del casino, parseamos a JSON normalmente
 app.use(express.json()); // Necesario para parsear el body de los webhoooks de Stripe
 
 // Ruta basica de salud para comprobar que la API responde
