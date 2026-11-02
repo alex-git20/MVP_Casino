@@ -81,3 +81,33 @@ export const handleStripeWebhook = async (req, res) => {
   // Stripe requiere un status 200 rápido para saber que recibimos el webhook
   res.status(200).json({ received: true });
 };
+
+export const createDepositIntent = async (req, res) => {
+  try {
+    const userId = req.user.id_usuario;
+    const { amount, currency } = req.body;
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_AMOUNT',
+          message: 'El monto del depósito debe ser mayor a cero.'
+        }
+      });
+    }
+
+    const clientSecret = await walletService.createPaymentIntent(userId, amount, currency || 'usd');
+
+    res.status(200).json({ clientSecret });
+  } catch (error) {
+    console.error('[Wallet Controller Error]:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'PAYMENT_INTENT_FAILED',
+        message: 'No se pudo inicializar la pasarela de pago.'
+      }
+    });
+  }
+};

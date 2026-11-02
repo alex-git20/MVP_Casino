@@ -1,4 +1,8 @@
-import { query } from '../../config/db.js';
+import { query, pool } from '../../config/db.js';
+import Stripe from 'stripe';
+import { config } from '../../config/env.js';
+
+const stripe = new Stripe(config.stripe.secretKey);
 
 export const getUserBalance = async (userId) => {
   const sql = `
@@ -65,4 +69,20 @@ export const processDeposit = async (userId, amount, stripeEventId, paymentInten
   } finally {
     client.release(); // Devolvemos el cliente al pool
   }
+};
+
+// Crear PaymentIntent
+export const createPaymentIntent = async (userId, amount, currency = 'usd') => {
+  // Stripe maneja los montos en centavos
+  const amountInCents = Math.round(amount * 100);
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: amountInCents,
+    currency,
+    metadata: {
+      id_usuario: userId // Dato vital que leerá nuestro webhook
+    }
+  });
+
+  return paymentIntent.client_secret;
 };
