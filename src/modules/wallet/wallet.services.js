@@ -86,3 +86,66 @@ export const createPaymentIntent = async (userId, amount, currency = 'usd') => {
 
   return paymentIntent.client_secret;
 };
+
+// Procesar solicitud de retiro con ACID
+export const processWithdrawal = async (userId, amount, currency = 'usd', destinationAccount) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1. Bloquear la billetera y obtener el saldo actual
+    const checkWallet = await client.query(
+      'SELECT id_billetera, saldo_real, saldo_bono FROM billetera WHERE id_usuario = $1 FOR UPDATE',
+      [userId]
+    );
+
+    if (checkWallet.rows.length === 0) {
+      throw new Error('Billetera no encontrada');
+    }
+
+    const { id_billetera, saldo_real: currentBalance, saldo_bono } = checkWallet.rows[0];
+
+    // 2. Validar fondos suficientes
+    if (parseFloat(currentBalance) < amount) {
+      const error = new Error('Fondos insuficientes');
+      error.code = 'INSUFFICIENT_FUNDS';
+      throw error;
+    }
+
+    // 3. Descontar el saldo
+    const updateWallet = await client.query(`
+      UPDATE billetera
+      SET saldo_real = saldo_real - $1
+      WHERE id_usuario = $2
+      RETURNING saldo_real
+    `, [amount, userId]);
+    
+    const newBalance = updateWallet.rows[0].saldo_real;
+
+    // 4. Registrar en transaccion (ID 2 = retiro)
+    const insertTx = await client.query(`
+      INSERT INTO transaccion (id_billetera, id_tipo_transaccion, monto, saldo_real_posterior, saldo_bono_posterior, estado) 
+      VALUES ($1, 2, $2, $3, $4, 'pendiente') 
+      RETURNING id_transaccion
+    `, [id_billetera, amount, newBalance, saldo_bono]);
+    
+    const id_transaccion = insertTx.rows[0].id_transaccion;
+
+    // 5. Registrar en pago (estado pendiente para revisión manual/KYC)
+    // Usamos stripe_payment_intent_id para guardar la cuenta destino por ahora
+    await client.query(`
+      INSERT INTO pago (id_transaccion, tipo, monto, moneda, stripe_payment_intent_id, estado) 
+      VALUES ($1, 'retiro', $2, $3, $4, 'pendiente')
+    `, [id_transaccion, amount, currency, destinationAccount]);
+
+    await client.query('COMMIT');
+    return { status: 'pending_approval', newBalance };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};

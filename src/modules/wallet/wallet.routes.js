@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBalance, handleStripeWebhook, createDepositIntent } from './wallet.controller.js'; // Necesario para handleStripeWebhook
+import { getBalance, handleStripeWebhook, createDepositIntent, requestWithdrawal } from './wallet.controller.js'; // Necesario para handleStripeWebhook
 // Importaremos el middleware del Rol 2 cuando esté listo. 
 // Por ahora asume que inyecta req.user.id_usuario
 import { requireAuth } from '../../middlewares/auth.middleware.js'; 
@@ -10,6 +10,9 @@ router.get('/balance', requireAuth, getBalance);
 
 // Ruta el frontend llama aquí para iniciar el pago
 router.post('/deposit', requireAuth, createDepositIntent);
+
+// Ruta de la Solicitud de retiro
+router.post('/withdraw', requireAuth, requestWithdrawal);
 
 // Ruta del webhook: Debe usar express.raw() ANTES del parseo JSON
 router.post('/webhook-stripe',handleStripeWebhook);

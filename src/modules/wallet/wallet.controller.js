@@ -111,3 +111,63 @@ export const createDepositIntent = async (req, res) => {
     });
   }
 };
+
+// Recibira la peticion HTTP, validara el monto y llamara al servicio
+export const requestWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user.id_usuario;
+    const { amount, currency, destinationAccount } = req.body;
+
+    // Validación básica
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_AMOUNT',
+          message: 'El monto del retiro debe ser mayor a cero.'
+        }
+      });
+    }
+
+    if (!destinationAccount) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'MISSING_DESTINATION',
+          message: 'Debe proporcionar una cuenta o método de destino para el retiro.'
+        }
+      });
+    }
+
+    const result = await walletService.processWithdrawal(userId, amount, currency || 'usd', destinationAccount);
+
+    res.status(200).json({
+      success: true,
+      message: 'Solicitud de retiro registrada correctamente. Pendiente de aprobación.',
+      data: {
+        newBalance: result.newBalance,
+        status: result.status
+      }
+    });
+
+  } catch (error) {
+    if (error.code === 'INSUFFICIENT_FUNDS') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INSUFFICIENT_FUNDS',
+          message: 'No tienes saldo real suficiente para realizar este retiro.'
+        }
+      });
+    }
+
+    console.error('[Wallet Controller Error - Withdrawal]:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'WITHDRAWAL_FAILED',
+        message: 'Ocurrió un error al procesar la solicitud de retiro.'
+      }
+    });
+  }
+};
