@@ -194,3 +194,98 @@ export const getTransactionHistory = async (userId, limit = 20, offset = 0) => {
     offset
   };
 };
+
+// Procesa una apuesta (descuenta saldo)
+// Uso interno para el equipo de Juegos
+export const processBet = async (id_usuario, monto) => {
+  // 1. Validaciones de seguridad de entrada
+  if (!id_usuario) throw new Error('MISSING_USER_ID');
+  if (typeof monto !== 'number' || isNaN(monto) || monto <= 0) {
+    throw new Error('INVALID_BET_AMOUNT');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 2. Bloquear la fila para evitar doble apuesta simultánea
+    const walletRes = await client.query(
+      'SELECT saldo_real FROM billetera WHERE id_usuario = $1 FOR UPDATE',
+      [id_usuario]
+    );
+
+    if (walletRes.rows.length === 0) throw new Error('WALLET_NOT_FOUND');
+
+    const saldoActual = parseFloat(walletRes.rows[0].saldo_real);
+    if (saldoActual < monto) throw new Error('INSUFFICIENT_FUNDS');
+
+    const nuevoSaldo = saldoActual - monto;
+
+    // 3. Descontar de la billetera
+    await client.query(
+      'UPDATE billetera SET saldo_real = $1 WHERE id_usuario = $2',
+      [nuevoSaldo, id_usuario]
+    );
+
+    // 4. Registrar en el historial
+    await client.query(
+      `INSERT INTO transacciones 
+      (id_usuario, monto, tipo, naturaleza, estado, saldo_real_posterior) 
+      VALUES ($1, $2, 'apuesta', 'debito', 'completado', $3)`,
+      [id_usuario, monto, nuevoSaldo]
+    );
+
+    await client.query('COMMIT');
+    return { success: true, newBalance: nuevoSaldo };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Procesa un premio (suma saldo)
+// Uso interno para el equipo de Juegos
+export const processWin = async (id_usuario, monto) => {
+  // 1. Validaciones de seguridad de entrada
+  if (!id_usuario) throw new Error('MISSING_USER_ID');
+  if (typeof monto !== 'number' || isNaN(monto) || monto <= 0) {
+    throw new Error('INVALID_WIN_AMOUNT');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const walletRes = await client.query(
+      'SELECT saldo_real FROM billetera WHERE id_usuario = $1 FOR UPDATE',
+      [id_usuario]
+    );
+
+    if (walletRes.rows.length === 0) throw new Error('WALLET_NOT_FOUND');
+
+    const saldoActual = parseFloat(walletRes.rows[0].saldo_real);
+    const nuevoSaldo = saldoActual + monto;
+
+    await client.query(
+      'UPDATE billetera SET saldo_real = $1 WHERE id_usuario = $2',
+      [nuevoSaldo, id_usuario]
+    );
+
+    await client.query(
+      `INSERT INTO transacciones 
+      (id_usuario, monto, tipo, naturaleza, estado, saldo_real_posterior) 
+      VALUES ($1, $2, 'premio', 'credito', 'completado', $3)`,
+      [id_usuario, monto, nuevoSaldo]
+    );
+
+    await client.query('COMMIT');
+    return { success: true, newBalance: nuevoSaldo };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
