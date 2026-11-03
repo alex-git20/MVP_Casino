@@ -171,3 +171,30 @@ export const requestWithdrawal = async (req, res) => {
     });
   }
 };
+
+// Obtener historial paginado
+export const getHistory = async (req, res) => {
+  try {
+    const userId = req.user.id_usuario;
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.max(parseInt(req.query.limit) || 20, 1);
+    const offset = (page - 1) * limit;
+
+    const history = await walletService.getTransactionHistory(userId, limit, offset);
+
+    res.status(200).json({
+      success: true,
+      data: history
+    });
+
+  } catch (error) {
+    console.error('[Wallet Controller Error - History]:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'HISTORY_FETCH_FAILED',
+        message: 'Error al consultar el historial de transacciones.'
+      }
+    });
+  }
+};

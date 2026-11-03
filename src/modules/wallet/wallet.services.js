@@ -149,3 +149,48 @@ export const processWithdrawal = async (userId, amount, currency = 'usd', destin
     client.release();
   }
 };
+
+// Obtener historial de transacciones con paginación
+export const getTransactionHistory = async (userId, limit = 20, offset = 0) => {
+  // 1. Obtener el ID de la billetera del usuario
+  const walletQuery = await query(
+    'SELECT id_billetera FROM billetera WHERE id_usuario = $1', 
+    [userId]
+  );
+  
+  if (walletQuery.rows.length === 0) {
+    return { transactions: [], total: 0 };
+  }
+  
+  const walletId = walletQuery.rows[0].id_billetera;
+
+  // 2. Consultar las transacciones uniendo con su tipo
+  const sql = `
+    SELECT 
+      t.id_transaccion, 
+      t.monto, 
+      t.saldo_real_posterior, 
+      t.estado,
+      t.fecha,
+      tt.nombre AS tipo,
+      tt.naturaleza
+    FROM transaccion t
+    JOIN tipo_transaccion tt ON t.id_tipo_transaccion = tt.id_tipo_transaccion
+    WHERE t.id_billetera = $1
+    ORDER BY t.fecha DESC -- Ordenamos desde el más reciente
+    LIMIT $2 OFFSET $3
+  `;
+
+  const { rows } = await query(sql, [walletId, limit, offset]);
+
+  // 3. Obtener el total para la paginación del frontend
+  const countSql = 'SELECT COUNT(*) as total FROM transaccion WHERE id_billetera = $1';
+  const countResult = await query(countSql, [walletId]);
+
+  return {
+    transactions: rows,
+    total: parseInt(countResult.rows[0].total, 10),
+    limit,
+    offset
+  };
+};
