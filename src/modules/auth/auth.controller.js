@@ -22,3 +22,22 @@ export const register = async (req, res) => {
     });
   }
 };
+
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Delegamos la verificación y creación del token al servicio
+    const token = await authService.loginUser({ email, password });
+
+    res.status(200).json({ token });
+  } catch (error) {
+    res.status(401).json({
+      success: false,
+      error: {
+        code: "INVALID_CREDENTIALS",
+        message: error.message
+      }
+    });
+  }
+};

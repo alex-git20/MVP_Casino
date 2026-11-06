@@ -1,6 +1,6 @@
 import { pool } from '../../config/db.js';
-
 import bcrypt from 'bcrypt'; 
+import jwt from 'jsonwebtoken';
 
 export const registerUser = async ({ username, email, password, fecha_nacimiento }) => {
   const client = await pool.connect();
@@ -52,4 +52,36 @@ export const registerUser = async ({ username, email, password, fecha_nacimiento
     // Liberar el cliente al pool
     client.release();
   }
+};
+
+export const loginUser = async ({ email, password }) => {
+  // 1. Buscar al usuario (usamos $1 para evitar SQL Injection)
+  const query = `
+    SELECT id_usuario, id_rol, password_hash 
+    FROM usuario 
+    WHERE email = $1;
+  `;
+  const result = await pool.query(query, [email]);
+  
+  if (result.rows.length === 0) {
+    throw new Error('Correo o contraseña incorrectos');
+  }
+
+  const user = result.rows[0];
+
+  // 2. Verificar que la contraseña coincida con el hash
+  const isValidPassword = await bcrypt.compare(password, user.password_hash);
+  if (!isValidPassword) {
+    throw new Error('Correo o contraseña incorrectos');
+  }
+
+  // 3. Generar el JWT incluyendo los datos necesarios para el futuro middleware
+  const jwtSecret = process.env.JWT_SECRET || 'casino_secret_key_temporal';
+  const token = jwt.sign(
+    { id_usuario: user.id_usuario, id_rol: user.id_rol },
+    jwtSecret,
+    { expiresIn: '8h' }
+  );
+
+  return token;
 };
