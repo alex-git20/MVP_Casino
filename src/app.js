@@ -8,6 +8,9 @@ import walletRoutes from './modules/wallet/wallet.routes.js'; // Módulo financi
 // Importacion del middleware de errores global
 import { errorHandler } from './middlewares/error.middleware.js';
 
+// Importacion de rutas de autenticación
+import authRoutes from './modules/auth/auth.routes.js'; // Módulo de Autenticación
+
 const app = express();
 
 app.use(helmet());
