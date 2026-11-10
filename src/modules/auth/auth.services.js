@@ -3,17 +3,41 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 export const registerUser = async ({ username, email, password, fecha_nacimiento }) => {
+
+  // 1. ESCUDO DE VALIDACIÓN (Reglas del Casino)
+    
+  // A. Validar longitud de contraseña
+  if (password.length < 8) {
+    throw new Error('La contraseña debe tener al menos 8 caracteres.');
+  }
+
+  // B. Validar mayoría de edad (18+ años)
+  const fechaNac = new Date(fecha_nacimiento);
+  const hoy = new Date();
+  let edad = hoy.getFullYear() - fechaNac.getFullYear();
+  const mes = hoy.getMonth() - fechaNac.getMonth();
+  
+  // Si aún no ha pasado su mes de cumpleaños, o si es el mes pero no ha llegado el día, restamos 1 año
+  if (mes < 0 || (mes === 0 && hoy.getDate() < fechaNac.getDate())) {
+    edad--;
+  }
+
+  if (edad < 18) {
+    throw new Error('Debes ser mayor de 18 años para registrarte en el casino.');
+  }
+  // ==========================================
+
   const client = await pool.connect();
 
   try {
-    // 1. Iniciar transacción ACID
+    // 2. Iniciar transacción ACID
     await client.query('BEGIN');
 
-    // 2. Hashear la contraseña por seguridad
+    // 3. Hashear la contraseña por seguridad
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // 3. Insertar el usuario (Evitando SQL Injection con $1, $2...)
+    // 4. Insertar el usuario (Evitando SQL Injection con $1, $2...)
     const insertUserQuery = `
       INSERT INTO usuario (id_rol, username, email, password_hash, fecha_nacimiento)
       VALUES (
@@ -26,7 +50,7 @@ export const registerUser = async ({ username, email, password, fecha_nacimiento
     const userResult = await client.query(insertUserQuery, userValues);
     const newUser = userResult.rows[0];
 
-    // 4. Inicializar la billetera en cero vinculada al usuario
+    // 5. Inicializar la billetera en cero vinculada al usuario
     const insertWalletQuery = `
       INSERT INTO billetera (id_usuario, saldo_real, saldo_bono)
       VALUES ($1, 0.00, 0.00)
@@ -35,7 +59,7 @@ export const registerUser = async ({ username, email, password, fecha_nacimiento
     const walletResult = await client.query(insertWalletQuery, [newUser.id_usuario]);
     const newWallet = walletResult.rows[0];
 
-    // 5. Confirmar transacción
+    // 6. Confirmar transacción
     await client.query('COMMIT');
 
     // Retornamos la confirmación exacta que exige el contrato

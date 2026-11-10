@@ -1,7 +1,5 @@
 import { Router } from 'express';
 import { getBalance, handleStripeWebhook, createDepositIntent, requestWithdrawal, getHistory } from './wallet.controller.js'; // Necesario para handleStripeWebhook
-// Importaremos el middleware del Rol 2 cuando esté listo. 
-// Por ahora asume que inyecta req.user.id_usuario
 import { requireAuth } from '../../middlewares/auth.middleware.js'; 
 
 const router = Router();
