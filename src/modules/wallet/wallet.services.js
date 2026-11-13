@@ -4,6 +4,36 @@ import { config } from '../../config/env.js';
 
 const stripe = new Stripe(config.stripe.secretKey);
 
+// --- Funciones auxiliares internas ---
+
+// Busca el id de tipo_transaccion por nombre ('apuesta' o 'premio')
+const getTransactionTypeId = async (client, name) => {
+  const { rows } = await client.query(
+    'SELECT id_tipo_transaccion FROM tipo_transaccion WHERE nombre = $1 LIMIT 1',
+    [name]
+  );
+  if (rows.length === 0) {
+    const error = new Error(`Tipo de transacción '${name}' no encontrado.`);
+    error.code = 'TRANSACTION_TYPE_NOT_FOUND';
+    throw error;
+  }
+  return rows[0].id_tipo_transaccion;
+};
+
+// Registra la transacción en la base de datos y retorna su ID
+const registerTransaction = async (client, { walletId, typeId, amount, newRealBalance, newBonusBalance }) => {
+  const { rows } = await client.query(
+    `INSERT INTO transaccion
+        (id_billetera, id_tipo_transaccion, monto, saldo_real_posterior, saldo_bono_posterior, estado)
+      VALUES ($1, $2, $3, $4, $5, 'completado')
+      RETURNING id_transaccion`,
+    [walletId, typeId, amount, newRealBalance, newBonusBalance]
+  );
+  return rows[0].id_transaccion;
+};
+
+// --- Fin funciones auxiliares internas ---
+
 export const getUserBalance = async (userId) => {
   const sql = `
     SELECT saldo_real, saldo_bono 
@@ -195,97 +225,90 @@ export const getTransactionHistory = async (userId, limit = 20, offset = 0) => {
   };
 };
 
-// Procesa una apuesta (descuenta saldo)
-// Uso interno para el equipo de Juegos
-export const processBet = async (id_usuario, monto) => {
-  // 1. Validaciones de seguridad de entrada
-  if (!id_usuario) throw new Error('MISSING_USER_ID');
-  if (typeof monto !== 'number' || isNaN(monto) || monto <= 0) {
+/**
+ * Procesa una apuesta (descuenta saldo).
+ * Requiere inyección de cliente pg (Unit of Work) para pertenecer a una transacción global.
+ * Retorna el ID de la transacción financiera.
+ */
+export const processBet = async (client, { userId, amount }) => {
+  const amountNumber = Number(amount);
+  if (!userId) throw new Error('MISSING_USER_ID');
+  if (isNaN(amountNumber) || amountNumber <= 0) {
     throw new Error('INVALID_BET_AMOUNT');
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const typeId = await getTransactionTypeId(client, 'apuesta');
+  const amountStr = amountNumber.toFixed(2);
 
-    // 2. Bloquear la fila para evitar doble apuesta simultánea
-    const walletRes = await client.query(
-      'SELECT saldo_real FROM billetera WHERE id_usuario = $1 FOR UPDATE',
-      [id_usuario]
-    );
+  // El UPDATE actúa como FOR UPDATE (bloquea la fila) y valida en un solo paso
+  const { rows } = await client.query(
+    `UPDATE billetera
+        SET saldo_real = saldo_real - $1
+      WHERE id_usuario = $2 AND saldo_real >= $1
+      RETURNING id_billetera, saldo_real, saldo_bono`,
+    [amountStr, userId]
+  );
 
-    if (walletRes.rows.length === 0) throw new Error('WALLET_NOT_FOUND');
-
-    const saldoActual = parseFloat(walletRes.rows[0].saldo_real);
-    if (saldoActual < monto) throw new Error('INSUFFICIENT_FUNDS');
-
-    const nuevoSaldo = saldoActual - monto;
-
-    // 3. Descontar de la billetera
-    await client.query(
-      'UPDATE billetera SET saldo_real = $1 WHERE id_usuario = $2',
-      [nuevoSaldo, id_usuario]
-    );
-
-    // 4. Registrar en el historial
-    await client.query(
-      `INSERT INTO transacciones 
-      (id_usuario, monto, tipo, naturaleza, estado, saldo_real_posterior) 
-      VALUES ($1, $2, 'apuesta', 'debito', 'completado', $3)`,
-      [id_usuario, monto, nuevoSaldo]
-    );
-
-    await client.query('COMMIT');
-    return { success: true, newBalance: nuevoSaldo };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+  if (rows.length === 0) {
+    const userExists = await client.query('SELECT 1 FROM billetera WHERE id_usuario = $1', [userId]);
+    if (userExists.rows.length === 0) {
+      const err = new Error('Billetera no encontrada para el usuario.');
+      err.code = 'WALLET_NOT_FOUND';
+      throw err;
+    }
+    const err = new Error('Fondos insuficientes.');
+    err.code = 'INSUFFICIENT_FUNDS';
+    throw err;
   }
+
+  const { id_billetera, saldo_real, saldo_bono } = rows[0];
+  
+  // Registrar y devolver el ID para que juegos lo vincule a la apuesta
+  return await registerTransaction(client, {
+    walletId: id_billetera, 
+    typeId, 
+    amount: amountStr, 
+    newRealBalance: saldo_real, 
+    newBonusBalance: saldo_bono
+  });
 };
 
-// Procesa un premio (suma saldo)
-// Uso interno para el equipo de Juegos
-export const processWin = async (id_usuario, monto) => {
-  // 1. Validaciones de seguridad de entrada
-  if (!id_usuario) throw new Error('MISSING_USER_ID');
-  if (typeof monto !== 'number' || isNaN(monto) || monto <= 0) {
+/**
+ * Procesa un premio (suma saldo).
+ * Requiere inyección de cliente pg (Unit of Work) para pertenecer a una transacción global.
+ * Retorna el ID de la transacción financiera.
+ */
+export const processWin = async (client, { userId, amount }) => {
+  const amountNumber = Number(amount);
+  if (!userId) throw new Error('MISSING_USER_ID');
+  if (isNaN(amountNumber) || amountNumber <= 0) {
     throw new Error('INVALID_WIN_AMOUNT');
   }
 
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  const typeId = await getTransactionTypeId(client, 'premio');
+  const amountStr = amountNumber.toFixed(2);
 
-    const walletRes = await client.query(
-      'SELECT saldo_real FROM billetera WHERE id_usuario = $1 FOR UPDATE',
-      [id_usuario]
-    );
+  const { rows } = await client.query(
+    `UPDATE billetera
+        SET saldo_real = saldo_real + $1
+      WHERE id_usuario = $2
+      RETURNING id_billetera, saldo_real, saldo_bono`,
+    [amountStr, userId]
+  );
 
-    if (walletRes.rows.length === 0) throw new Error('WALLET_NOT_FOUND');
-
-    const saldoActual = parseFloat(walletRes.rows[0].saldo_real);
-    const nuevoSaldo = saldoActual + monto;
-
-    await client.query(
-      'UPDATE billetera SET saldo_real = $1 WHERE id_usuario = $2',
-      [nuevoSaldo, id_usuario]
-    );
-
-    await client.query(
-      `INSERT INTO transacciones 
-      (id_usuario, monto, tipo, naturaleza, estado, saldo_real_posterior) 
-      VALUES ($1, $2, 'premio', 'credito', 'completado', $3)`,
-      [id_usuario, monto, nuevoSaldo]
-    );
-
-    await client.query('COMMIT');
-    return { success: true, newBalance: nuevoSaldo };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
+  if (rows.length === 0) {
+    const err = new Error('Billetera no encontrada para el usuario.');
+    err.code = 'WALLET_NOT_FOUND';
+    throw err;
   }
+
+  const { id_billetera, saldo_real, saldo_bono } = rows[0];
+
+  return await registerTransaction(client, {
+    walletId: id_billetera, 
+    typeId, 
+    amount: amountStr, 
+    newRealBalance: saldo_real, 
+    newBonusBalance: saldo_bono
+  });
 };
