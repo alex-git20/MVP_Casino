@@ -46,3 +46,50 @@ export const toggleUserStatus = async (req, res) => {
     });
   }
 };
+
+export const getWithdrawals = async (req, res) => {
+  try {
+    const { page, limit } = req.query;
+    
+    const result = await adminService.listPendingWithdrawals({ 
+      page: page ? parseInt(page) : 1, 
+      limit: limit ? parseInt(limit) : 10 
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: "WITHDRAWALS_FETCH_ERROR",
+        message: error.message || "Error al obtener los retiros."
+      }
+    });
+  }
+};
+
+export const resolveWithdrawal = async (req, res) => {
+  try {
+    const { id } = req.params; // ID de la transacción
+    const { accion } = req.body; // 'aprobar' o 'rechazar'
+
+    const processedTx = await adminService.processWithdrawal(id, accion);
+
+    res.status(200).json({
+      success: true,
+      data: processedTx,
+      message: `Retiro ${accion} con éxito.`
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      error: {
+        code: "WITHDRAWAL_PROCESS_ERROR",
+        message: error.message
+      }
+    });
+  }
+};
