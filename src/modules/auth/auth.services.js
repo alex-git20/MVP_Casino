@@ -79,11 +79,12 @@ export const registerUser = async ({ username, email, password, fecha_nacimiento
 };
 
 export const loginUser = async ({ email, password }) => {
-  // 1. Buscar al usuario (usamos $1 para evitar SQL Injection)
+  // 1. Buscamos al usuario, traemos su estado y el nombre de su rol
   const query = `
-    SELECT id_usuario, id_rol, password_hash 
-    FROM usuario 
-    WHERE email = $1;
+    SELECT u.id_usuario, u.id_rol, u.password_hash, u.estado, r.nombre AS rol_nombre
+    FROM usuario u
+    JOIN rol r ON u.id_rol = r.id_rol
+    WHERE u.email = $1;
   `;
   const result = await pool.query(query, [email]);
   
@@ -93,16 +94,26 @@ export const loginUser = async ({ email, password }) => {
 
   const user = result.rows[0];
 
-  // 2. Verificar que la contraseña coincida con el hash
+  // --- NUEVO: Escudo de Borrado Lógico ---
+  if (user.estado !== 'activo') {
+    throw new Error('Esta cuenta ha sido suspendida o desactivada.');
+  }
+  // ---------------------------------------
+
+  // 2. Verificar contraseña
   const isValidPassword = await bcrypt.compare(password, user.password_hash);
   if (!isValidPassword) {
     throw new Error('Correo o contraseña incorrectos');
   }
 
-  // 3. Generar el JWT incluyendo los datos necesarios para el futuro middleware
+  // 3. Generar el JWT incluyendo el nombre del rol
   const jwtSecret = process.env.JWT_SECRET || 'casino_secret_key_temporal';
   const token = jwt.sign(
-    { id_usuario: user.id_usuario, id_rol: user.id_rol },
+    { 
+      id_usuario: user.id_usuario, 
+      id_rol: user.id_rol,
+      rol_nombre: user.rol_nombre 
+    },
     jwtSecret,
     { expiresIn: '8h' }
   );

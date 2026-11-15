@@ -31,17 +31,16 @@ export const requireAuth = (req, res, next) => {
   }
 };
 
-// Middleware para verificar que el usuario es administrador
 export const requireAdmin = (req, res, next) => {
-  // Verificamos el id_rol (asegúrate de que en el payload de tu JWT al hacer login estés incluyendo el id_rol)
-  if (req.user && req.user.id_rol === 1) {
+  // Validamos por nombre de rol explícito (o el ID por retrocompatibilidad)
+  if (req.user && (req.user.rol_nombre === 'admin' || req.user.id_rol === 1)) {
     next();
   } else {
     return res.status(403).json({
       success: false,
       error: {
         code: "FORBIDDEN",
-        message: "Acceso denegado. Se requieren permisos de administrador."
+        message: "Acceso denegado. Área exclusiva para administradores."
       }
     });
   }
