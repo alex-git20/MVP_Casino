@@ -15,6 +15,8 @@ import authRoutes from './modules/auth/auth.routes.js'; // Módulo de Autenticac
 // Importacion de rutas de juegos
 import gamesRoutes from './modules/games/games.routes.js'; // Módulo de Autenticación
 
+import adminRoutes from './modules/admin/admin.routes.js' // Modulo de Administracion
+
 const app = express();
 
 app.use(helmet());
@@ -34,7 +36,8 @@ app.get('/api/health', (req, res) => {
 //Montaje de Modulos Independientes
 app.use('/api/wallet', walletRoutes); //  Modulo Financiero y Billetera 
 app.use('/api/auth', authRoutes);  // Módulo de Autenticación Rol 2
-app.use('/api/games', gamesRoutes); // Pendiente Módulo de Juegos y Apuestas Rol 3
+app.use('/api/games', gamesRoutes); // Módulo de Juegos y Apuestas Rol 3
+app.use('/api/admin', adminRoutes); // Modulo de Admin
 
 // IMPORTANTE: El middleware de errores siempre debe ser el último `app.use`
 app.use(errorHandler);
