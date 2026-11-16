@@ -65,19 +65,19 @@ export const updateUserStatus = async (id_usuario, newStatus) => {
   return result.rows[0];
 };
 
-// Obtener todos los retiros pendientes
+// Obtener todos los retiros pendientes (incluyendo la cuenta destino desde la tabla pago)
 export const listPendingWithdrawals = async ({ page = 1, limit = 10 }) => {
   const offset = (page - 1) * limit;
 
-  // Hacemos JOIN pasando por billetera para llegar al usuario
-  // y por tipo_transaccion para filtrar solo los retiros.
   const query = `
     SELECT t.id_transaccion, t.monto, t.fecha, t.estado,
+           p.stripe_payment_intent_id AS cuenta_destino,
            u.id_usuario, u.username, u.email
     FROM transaccion t
     JOIN billetera b ON t.id_billetera = b.id_billetera
     JOIN usuario u ON b.id_usuario = u.id_usuario
     JOIN tipo_transaccion tt ON t.id_tipo_transaccion = tt.id_tipo_transaccion
+    LEFT JOIN pago p ON t.id_transaccion = p.id_transaccion
     WHERE tt.nombre = 'retiro' AND t.estado = 'pendiente'
     ORDER BY t.fecha ASC
     LIMIT $1 OFFSET $2;
@@ -95,26 +95,26 @@ export const listPendingWithdrawals = async ({ page = 1, limit = 10 }) => {
     pool.query(countQuery)
   ]);
 
-  const total = parseInt(countResult.rows[0].count);
+  const total = parseInt(countResult.rows[0].count, 10);
 
   return {
     withdrawals: withdrawalsResult.rows,
     pagination: {
       total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / limit)
+      page: parseInt(page, 10),
+      totalPages: Math.ceil(total / limit) || 1
     }
   };
 };
 
-// Aprobar o Rechazar un retiro
+// Aprobar o Rechazar un retiro (sincronizando transaccion, billetera y pago)
 export const processWithdrawal = async (id_transaccion, accion) => {
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    // 1. Bloqueamos la transacción y traemos el id de la billetera
+    // 1. Bloqueamos la transacción
     const txQuery = `
       SELECT t.id_billetera, t.monto, t.estado 
       FROM transaccion t
@@ -135,25 +135,33 @@ export const processWithdrawal = async (id_transaccion, accion) => {
     
     if (accion === 'aprobar') {
       nuevoEstado = 'completado';
-      // El dinero ya se descontó de la billetera cuando el jugador solicitó el retiro.
+      // Actualizamos también la fecha de confirmación en la tabla pago
+      await client.query(`
+        UPDATE pago 
+        SET estado = 'completado', fecha_confirmacion = CURRENT_TIMESTAMP 
+        WHERE id_transaccion = $1;
+      `, [id_transaccion]);
       
     } else if (accion === 'rechazar') {
       nuevoEstado = 'rechazado';
-      // Como se rechaza, le devolvemos el dinero a su saldo real
-      const refundQuery = `
+      // Reembolsamos el dinero a la billetera del usuario
+      await client.query(`
         UPDATE billetera 
         SET saldo_real = saldo_real + $1 
         WHERE id_billetera = $2;
-      `;
-      await client.query(refundQuery, [transaccion.monto, transaccion.id_billetera]);
-      
-      // Nota: Para una auditoría perfecta, podrías insertar aquí una NUEVA transacción 
-      // de tipo 'reembolso', pero por ahora actualizar el saldo es suficiente.
+      `, [transaccion.monto, transaccion.id_billetera]);
+
+      // Marcamos el pago como rechazado
+      await client.query(`
+        UPDATE pago 
+        SET estado = 'rechazado' 
+        WHERE id_transaccion = $1;
+      `, [id_transaccion]);
     } else {
       throw new Error("Acción no válida. Usa 'aprobar' o 'rechazar'.");
     }
 
-    // 3. Actualizamos el estado de la transacción original
+    // 3. Actualizamos el estado en transaccion
     const updateTxQuery = `
       UPDATE transaccion 
       SET estado = $1 
