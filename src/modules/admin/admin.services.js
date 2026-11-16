@@ -243,3 +243,51 @@ export const listGlobalTransactions = async ({ page = 1, limit = 15, search = ''
     }
   };
 };
+
+// Obtener métricas ejecutivas (KPIs) del casino
+export const getExecutiveKPIs = async () => {
+  const txStatsQuery = `
+    SELECT
+      COALESCE(SUM(t.monto) FILTER (WHERE tt.nombre = 'deposito' AND t.estado = 'completado'), 0) AS total_depositado,
+      COALESCE(SUM(t.monto) FILTER (WHERE tt.nombre = 'retiro' AND t.estado = 'completado'), 0) AS total_retirado,
+      COALESCE(SUM(t.monto) FILTER (WHERE tt.nombre = 'retiro' AND t.estado = 'pendiente'), 0) AS monto_retiros_pendientes,
+      COUNT(*) FILTER (WHERE tt.nombre = 'retiro' AND t.estado = 'pendiente') AS conteo_retiros_pendientes,
+      COALESCE(SUM(t.monto) FILTER (WHERE tt.nombre = 'apuesta' AND t.estado = 'completado'), 0) AS total_apostado,
+      COALESCE(SUM(t.monto) FILTER (WHERE tt.nombre = 'premio' AND t.estado = 'completado'), 0) AS total_premios
+    FROM transaccion t
+    JOIN tipo_transaccion tt ON t.id_tipo_transaccion = tt.id_tipo_transaccion;
+  `;
+
+  const userStatsQuery = `
+    SELECT
+      COUNT(*) FILTER (WHERE estado = 'activo') AS usuarios_activos,
+      COUNT(*) AS total_usuarios
+    FROM usuario;
+  `;
+
+  const [txResult, userResult] = await Promise.all([
+    pool.query(txStatsQuery),
+    pool.query(userStatsQuery)
+  ]);
+
+  const txStats = txResult.rows[0];
+  const userStats = userResult.rows[0];
+
+  const totalDepositado = parseFloat(txStats.total_depositado);
+  const totalRetirado = parseFloat(txStats.total_retirado);
+  const totalApostado = parseFloat(txStats.total_apostado);
+  const totalPremios = parseFloat(txStats.total_premios);
+
+  // GGR = Lo que los jugadores apostaron menos lo que ganaron en premios
+  const ggr = totalApostado - totalPremios;
+
+  return {
+    totalDepositado,
+    totalRetirado,
+    montoRetirosPendientes: parseFloat(txStats.monto_retiros_pendientes),
+    conteoRetirosPendientes: parseInt(txStats.conteo_retiros_pendientes, 10),
+    ggr,
+    usuariosActivos: parseInt(userStats.usuarios_activos, 10),
+    totalUsuarios: parseInt(userStats.total_usuarios, 10)
+  };
+};

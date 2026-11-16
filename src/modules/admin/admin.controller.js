@@ -120,3 +120,21 @@ export const getGlobalTransactions = async (req, res) => {
     });
   }
 };
+
+export const getDashboardStats = async (req, res) => {
+  try {
+    const kpis = await adminService.getExecutiveKPIs();
+    res.status(200).json({
+      success: true,
+      data: kpis
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'KPI_FETCH_ERROR',
+        message: error.message || 'Error al cargar las métricas ejecutivas.'
+      }
+    });
+  }
+};

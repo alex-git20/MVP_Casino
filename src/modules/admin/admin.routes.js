@@ -4,7 +4,8 @@ import {
   toggleUserStatus, 
   getWithdrawals, 
   resolveWithdrawal,
-  getGlobalTransactions
+  getGlobalTransactions,
+  getDashboardStats
 } from '../admin/admin.controller.js';
 import { requireAuth, requireAdmin } from '../../middlewares/auth.middleware.js';
 
@@ -22,5 +23,7 @@ router.get('/withdrawals', getWithdrawals);
 router.patch('/withdrawals/:id/resolve', resolveWithdrawal);
 
 router.get('/transactions', getGlobalTransactions);
+
+router.get('/kpis', getDashboardStats);
 
 export default router;
