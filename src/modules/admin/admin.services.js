@@ -172,3 +172,74 @@ export const processWithdrawal = async (id_transaccion, accion) => {
     client.release();
   }
 };
+
+// Obtener el historial global de transacciones con filtros y paginación
+export const listGlobalTransactions = async ({ page = 1, limit = 15, search = '', tipo = '', estado = '' }) => {
+  const offset = (page - 1) * limit;
+  const values = [];
+  const conditions = [];
+
+  if (search) {
+    values.push(`%${search}%`);
+    conditions.push(`(u.username ILIKE $${values.length} OR u.email ILIKE $${values.length})`);
+  }
+
+  if (tipo) {
+    values.push(tipo);
+    conditions.push(`tt.nombre = $${values.length}`);
+  }
+
+  if (estado) {
+    values.push(estado);
+    conditions.push(`t.estado = $${values.length}`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const baseJoins = `
+    FROM transaccion t
+    JOIN billetera b ON t.id_billetera = b.id_billetera
+    JOIN usuario u ON b.id_usuario = u.id_usuario
+    JOIN tipo_transaccion tt ON t.id_tipo_transaccion = tt.id_tipo_transaccion
+  `;
+
+  const query = `
+    SELECT 
+      t.id_transaccion,
+      t.monto,
+      t.saldo_real_posterior,
+      t.saldo_bono_posterior,
+      t.estado,
+      t.fecha,
+      tt.nombre AS tipo_transaccion,
+      u.id_usuario,
+      u.username,
+      u.email
+    ${baseJoins}
+    ${whereClause}
+    ORDER BY t.fecha DESC
+    LIMIT $${values.length + 1} OFFSET $${values.length + 2};
+  `;
+
+  const countQuery = `
+    SELECT COUNT(*)
+    ${baseJoins}
+    ${whereClause};
+  `;
+
+  const [txResult, countResult] = await Promise.all([
+    pool.query(query, [...values, limit, offset]),
+    pool.query(countQuery, values)
+  ]);
+
+  const total = parseInt(countResult.rows[0].count, 10);
+
+  return {
+    transactions: txResult.rows,
+    pagination: {
+      total,
+      page: parseInt(page, 10),
+      totalPages: Math.ceil(total / limit) || 1
+    }
+  };
+};

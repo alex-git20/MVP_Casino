@@ -3,7 +3,8 @@ import {
   getUsers, 
   toggleUserStatus, 
   getWithdrawals, 
-  resolveWithdrawal 
+  resolveWithdrawal,
+  getGlobalTransactions
 } from '../admin/admin.controller.js';
 import { requireAuth, requireAdmin } from '../../middlewares/auth.middleware.js';
 
@@ -19,5 +20,7 @@ router.patch('/users/:id/status', toggleUserStatus);
 // Rutas de Retiros (Fase 3)
 router.get('/withdrawals', getWithdrawals);
 router.patch('/withdrawals/:id/resolve', resolveWithdrawal);
+
+router.get('/transactions', getGlobalTransactions);
 
 export default router;

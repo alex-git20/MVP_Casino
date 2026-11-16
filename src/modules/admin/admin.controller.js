@@ -93,3 +93,30 @@ export const resolveWithdrawal = async (req, res) => {
     });
   }
 };
+
+export const getGlobalTransactions = async (req, res) => {
+  try {
+    const { page, limit, search, tipo, estado } = req.query;
+
+    const result = await adminService.listGlobalTransactions({
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 15,
+      search: search || '',
+      tipo: tipo || '',
+      estado: estado || ''
+    });
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'TRANSACTIONS_FETCH_ERROR',
+        message: error.message || 'Error al obtener el historial global.'
+      }
+    });
+  }
+};
